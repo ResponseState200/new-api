@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -229,12 +230,13 @@ func ValidateWorkbenchVideoRequest() gin.HandlerFunc {
 				return
 			}
 			defer form.RemoveAll()
-			modelName = strings.TrimSpace(form.Value.Get("model"))
-			prompt = strings.TrimSpace(form.Value.Get("prompt"))
-			mode = form.Value.Get("mode")
-			durationSeconds, _ = strconv.Atoi(strings.TrimSpace(form.Value.Get("duration_seconds")))
-			ratio = strings.TrimSpace(form.Value.Get("ratio"))
-			videoResolution = strings.TrimSpace(form.Value.Get("video_resolution"))
+			formValues := url.Values(form.Value)
+			modelName = strings.TrimSpace(formValues.Get("model"))
+			prompt = strings.TrimSpace(formValues.Get("prompt"))
+			mode = formValues.Get("mode")
+			durationSeconds, _ = strconv.Atoi(strings.TrimSpace(formValues.Get("duration_seconds")))
+			ratio = strings.TrimSpace(formValues.Get("ratio"))
+			videoResolution = strings.TrimSpace(formValues.Get("video_resolution"))
 			if mode == "image_to_video" {
 				files := form.File["input_reference"]
 				if len(files) == 0 || files[0].Size <= 0 ||
