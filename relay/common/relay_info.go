@@ -945,7 +945,10 @@ type TaskSubmitReq struct {
 	Images         []string               `json:"images,omitempty"`
 	Size           string                 `json:"size,omitempty"`
 	Duration       int                    `json:"duration,omitempty"`
+	DurationSeconds *int                  `json:"duration_seconds,omitempty"`
 	Seconds        string                 `json:"seconds,omitempty"`
+	Ratio          string                 `json:"ratio,omitempty"`
+	VideoResolution string                `json:"video_resolution,omitempty"`
 	InputReference string                 `json:"input_reference,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -961,8 +964,9 @@ func (t *TaskSubmitReq) HasImage() bool {
 func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	type Alias TaskSubmitReq
 	aux := &struct {
-		Metadata json.RawMessage `json:"metadata,omitempty"`
-		Duration json.RawMessage `json:"duration,omitempty"`
+		Metadata        json.RawMessage `json:"metadata,omitempty"`
+		Duration        json.RawMessage `json:"duration,omitempty"`
+		DurationSeconds json.RawMessage `json:"duration_seconds,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
@@ -983,6 +987,26 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 					t.Duration = v
 				}
 			}
+		}
+	}
+
+	if len(aux.DurationSeconds) > 0 {
+		var durationInt int
+		if err := common.Unmarshal(aux.DurationSeconds, &durationInt); err == nil {
+			t.DurationSeconds = &durationInt
+		} else {
+			var durationStr string
+			if stringErr := common.Unmarshal(aux.DurationSeconds, &durationStr); stringErr != nil || durationStr == "" {
+				if stringErr != nil {
+					return stringErr
+				}
+				return fmt.Errorf("duration_seconds is invalid")
+			}
+			v, err := strconv.Atoi(durationStr)
+			if err != nil {
+				return err
+			}
+			t.DurationSeconds = &v
 		}
 	}
 

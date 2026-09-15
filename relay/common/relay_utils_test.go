@@ -107,6 +107,11 @@ func TestTaskDurationBounds(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "huge duration_seconds is rejected",
+			body:    `{"model":"sora-2","prompt":"a cat","duration_seconds":9999999999}`,
+			wantErr: true,
+		},
+		{
 			name:    "negative duration is rejected",
 			body:    `{"model":"sora-2","prompt":"a cat","duration":-8}`,
 			wantErr: true,
@@ -114,6 +119,10 @@ func TestTaskDurationBounds(t *testing.T) {
 		{
 			name: "normal duration is accepted",
 			body: `{"model":"sora-2","prompt":"a cat","seconds":"8"}`,
+		},
+		{
+			name: "normal duration_seconds is accepted",
+			body: `{"model":"sora-2","prompt":"a cat","duration_seconds":8}`,
 		},
 	}
 

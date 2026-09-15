@@ -36,6 +36,7 @@ import {
   User,
   Users,
   Wallet,
+  WandSparkles,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -61,6 +62,11 @@ export function useSidebarData(): SidebarData {
             title: t('Playground'),
             url: '/playground',
             icon: FlaskConical,
+          },
+          {
+            title: t('Online Workbench'),
+            url: '/workbench',
+            icon: WandSparkles,
           },
           {
             title: t('Chat'),

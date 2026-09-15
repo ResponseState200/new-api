@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service/authz"
 
 	// Import oauth package to register providers via init()
@@ -193,6 +194,50 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionAdminRoute.POST("/users/:id/subscriptions/reset", controller.AdminResetUserSubscriptionsByPlan)
 			subscriptionAdminRoute.POST("/user_subscriptions/:id/invalidate", controller.AdminInvalidateUserSubscription)
 			subscriptionAdminRoute.DELETE("/user_subscriptions/:id", controller.AdminDeleteUserSubscription)
+		}
+
+		workbenchRoute := apiRouter.Group("/workbench")
+		workbenchRoute.Use(middleware.DisableCache(), middleware.UserAuth())
+		{
+			workbenchRoute.GET("/keys", controller.ListWorkbenchKeys)
+			workbenchRoute.GET("/models", controller.ListWorkbenchModels)
+
+			workbenchImageRoute := workbenchRoute.Group("/keys/:token_id/images")
+			workbenchImageRoute.Use(
+				middleware.PrepareWorkbenchToken("/v1/images/generations"),
+				middleware.ValidateWorkbenchImageRequest(),
+				middleware.SystemPerformanceCheck(),
+				middleware.ModelRequestRateLimit(),
+				middleware.Distribute(),
+			)
+			workbenchImageRoute.POST("", func(c *gin.Context) {
+				controller.Relay(c, types.RelayFormatOpenAIImage)
+			})
+
+			workbenchVideoCreateRoute := workbenchRoute.Group("/keys/:token_id/videos")
+			workbenchVideoCreateRoute.Use(
+				middleware.PrepareWorkbenchToken("/v1/videos"),
+				middleware.ValidateWorkbenchVideoRequest(),
+				middleware.SystemPerformanceCheck(),
+				middleware.PinTaskPluginEndpoint(),
+				middleware.TaskPluginEndpointOnly(middleware.ModelRequestRateLimit()),
+				middleware.PrepareTaskPluginEndpoint(),
+				middleware.Distribute(),
+			)
+			workbenchVideoCreateRoute.POST("", func(c *gin.Context) {
+				controller.RelayTaskPluginEndpoint(c, controller.RelayTask)
+			})
+
+			workbenchVideoFetchRoute := workbenchRoute.Group("/keys/:token_id/videos/:task_id")
+			workbenchVideoFetchRoute.Use(
+				middleware.PrepareWorkbenchToken("/v1/videos/:task_id"),
+				middleware.Distribute(),
+			)
+			workbenchVideoFetchRoute.GET("", controller.WorkbenchVideoFetch)
+
+			workbenchVideoContentRoute := workbenchRoute.Group("/keys/:token_id/videos/:task_id/content")
+			workbenchVideoContentRoute.Use(middleware.PrepareWorkbenchToken("/v1/videos/:task_id/content"))
+			workbenchVideoContentRoute.GET("", controller.WorkbenchVideoContent)
 		}
 
 		// Subscription payment callbacks (no auth)

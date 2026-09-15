@@ -147,6 +147,9 @@ const MaxTaskDurationSeconds = 3600
 
 func validateTaskDurationBounds(req TaskSubmitReq) *dto.TaskError {
 	seconds := req.Duration
+	if seconds == 0 && req.DurationSeconds != nil {
+		seconds = *req.DurationSeconds
+	}
 	if seconds == 0 && req.Seconds != "" {
 		seconds, _ = strconv.Atoi(req.Seconds)
 	}
@@ -168,13 +171,20 @@ func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string
 		Model:    formData.Get("model"),
 		Mode:     formData.Get("mode"),
 		Image:    formData.Get("image"),
-		Size:     formData.Get("size"),
+		Size:            formData.Get("size"),
+		Ratio:           formData.Get("ratio"),
+		VideoResolution: formData.Get("video_resolution"),
 		Metadata: make(map[string]interface{}),
 	}
 
 	if durationStr := formData.Get("seconds"); durationStr != "" {
 		if duration, err := strconv.Atoi(durationStr); err == nil {
 			req.Duration = duration
+		}
+	}
+	if durationStr := formData.Get("duration_seconds"); durationStr != "" {
+		if duration, err := strconv.Atoi(durationStr); err == nil {
+			req.DurationSeconds = &duration
 		}
 	}
 
@@ -214,6 +224,11 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 	seconds, _ = strconv.Atoi(req.Seconds)
 	if seconds == 0 {
 		seconds = req.Duration
+	}
+	if seconds == 0 {
+		if req.DurationSeconds != nil {
+			seconds = *req.DurationSeconds
+		}
 	}
 	if req.InputReference != "" {
 		req.Images = []string{req.InputReference}
@@ -275,6 +290,9 @@ func isKnownTaskField(field string) bool {
 		"images":          true,
 		"size":            true,
 		"duration":        true,
+		"duration_seconds": true,
+		"ratio":           true,
+		"video_resolution": true,
 		"input_reference": true, // Sora 特有字段
 	}
 	return knownFields[field]

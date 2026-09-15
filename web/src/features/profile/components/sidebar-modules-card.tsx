@@ -67,6 +67,11 @@ export function SidebarModulesCard() {
           description: t('AI model testing environment'),
         },
         {
+          key: 'workbench',
+          title: t('Online Workbench'),
+          description: t('Generate images and videos with an API key'),
+        },
+        {
           key: 'chat',
           title: t('Chat'),
           description: t('Chat session management'),

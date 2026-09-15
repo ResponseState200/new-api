@@ -66,6 +66,18 @@ func TestApplyUpstreamBodyMetadataSetsReplayableMetadata(t *testing.T) {
 	}
 }
 
+func TestNewTaskAPIRequestForwardsIdempotencyKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/workbench/keys/1/videos", nil)
+	context.Request.Header.Set("Idempotency-Key", "workbench-retry-key")
+
+	req, err := newTaskAPIRequest(context, "https://upstream.example/v1/videos", strings.NewReader("{}"))
+
+	require.NoError(t, err)
+	assert.Equal(t, "workbench-retry-key", req.Header.Get("Idempotency-Key"))
+}
+
 func TestApplyUpstreamBodyMetadataHidesRawBodyStorageCloser(t *testing.T) {
 	t.Parallel()
 

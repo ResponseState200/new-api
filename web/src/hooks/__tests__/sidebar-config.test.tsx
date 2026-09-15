@@ -120,6 +120,37 @@ describe('security sidebar visibility', () => {
   })
 })
 
+describe('online workbench sidebar entry', () => {
+  it('is visible by default and can be hidden by admin or user configuration', () => {
+    const defaultSidebar = sidebarFor()
+    expect(
+      defaultSidebar.result.current
+        .flatMap((group) => group.items)
+        .some((item) => item.title === 'Online Workbench')
+    ).toBe(true)
+
+    const hiddenByAdmin = sidebarFor(
+      { chat: { enabled: true, workbench: false } },
+      undefined
+    )
+    expect(
+      hiddenByAdmin.result.current
+        .flatMap((group) => group.items)
+        .some((item) => item.title === 'Online Workbench')
+    ).toBe(false)
+
+    const hiddenByUser = sidebarFor(
+      undefined,
+      { chat: { enabled: true, workbench: false } }
+    )
+    expect(
+      hiddenByUser.result.current
+        .flatMap((group) => group.items)
+        .some((item) => item.title === 'Online Workbench')
+    ).toBe(false)
+  })
+})
+
 describe('audit log sidebar entry', () => {
   it('admin settings default Audit Logs to visible and preserve its independent toggle when saved', () => {
     const config = parseSidebarModulesAdmin(
