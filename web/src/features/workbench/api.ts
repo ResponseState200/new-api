@@ -24,6 +24,7 @@ import type {
   VideoCreateResponse,
   VideoGenerationPayload,
   VideoTaskResponse,
+  WorkbenchGenerationsResponse,
   WorkbenchKeysResponse,
   WorkbenchMode,
   WorkbenchModelsResponse,
@@ -162,4 +163,21 @@ export async function downloadVideo(
     }
   )
   return response.data
+}
+
+export async function listGenerations(
+  mode: WorkbenchMode
+): Promise<WorkbenchGenerationsResponse> {
+  const response = await api.get('/api/workbench/generations', {
+    params: { type: mode },
+  })
+  return response.data.data
+}
+
+export function getGenerationContentUrl(id: number): string {
+  return `/api/workbench/generations/${id}/content`
+}
+
+export async function deleteGeneration(id: number): Promise<void> {
+  await api.delete(`/api/workbench/generations/${id}`)
 }

@@ -375,5 +375,7 @@ func InitResources() error {
 
 	service.StartAuthArtifactCleanup()
 
+	service.StartWorkbenchGenerationCleanup()
+
 	return nil
 }

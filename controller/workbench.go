@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -132,7 +134,7 @@ func ListWorkbenchModels(c *gin.Context) {
 }
 
 func WorkbenchVideoFetch(c *gin.Context) {
-	if !workbenchTaskBelongsToToken(c) {
+	if _, ok := workbenchTaskBelongsToToken(c); !ok {
 		return
 	}
 	middleware.RewriteWorkbenchRequestPath(c, "/v1/videos/"+c.Param("task_id"))
@@ -140,14 +142,122 @@ func WorkbenchVideoFetch(c *gin.Context) {
 }
 
 func WorkbenchVideoContent(c *gin.Context) {
-	if !workbenchTaskBelongsToToken(c) {
+	task, ok := workbenchTaskBelongsToToken(c)
+	if !ok {
 		return
 	}
-	middleware.RewriteWorkbenchRequestPath(c, "/v1/videos/"+c.Param("task_id")+"/content")
+	taskID := strings.TrimSpace(c.Param("task_id"))
+	tokenID := c.GetInt("token_id")
+
+	// 已在 24h 保留期内捕获过的视频直接本地回放，不回源上游。
+	if generation, err := model.GetByTokenTask(tokenID, taskID); err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to query workbench generation for task %s: %s", taskID, err.Error()))
+	} else if generation != nil && generation.Type == model.WorkbenchGenerationTypeVideo {
+		if serveWorkbenchGenerationContent(c, generation) {
+			return
+		}
+	}
+
+	middleware.RewriteWorkbenchRequestPath(c, "/v1/videos/"+taskID+"/content")
+	// 仅普通 GET（无 Range）捕获；HEAD/条件请求/206 不捕获。
+	if c.Request.Method != http.MethodGet || c.Request.Header.Get("Range") != "" {
+		VideoProxy(c)
+		return
+	}
+	capture, err := service.NewWorkbenchMediaCaptureWriter(c.Writer, c.GetInt("id"))
+	if err != nil {
+		logger.LogWarn(c.Request.Context(), "workbench video capture: failed to create capture file: "+err.Error())
+		VideoProxy(c)
+		return
+	}
+	c.Writer = capture
 	VideoProxy(c)
+	finalizeWorkbenchVideoCapture(c, capture, task, tokenID, taskID)
 }
 
-func workbenchTaskBelongsToToken(c *gin.Context) bool {
+// finalizeWorkbenchVideoCapture 校验捕获结果并建行；任何失败只删半成品、记日志。
+func finalizeWorkbenchVideoCapture(c *gin.Context, capture *service.WorkbenchMediaCaptureWriter, task *model.Task, tokenID int, taskID string) {
+	ctx := c.Request.Context()
+	contentLength := int64(-1)
+	if header := strings.TrimSpace(capture.Header().Get("Content-Length")); header != "" {
+		parsed, err := strconv.ParseInt(header, 10, 64)
+		if err != nil {
+			capture.Discard()
+			return
+		}
+		contentLength = parsed
+	}
+	mimeType := strings.TrimSpace(strings.Split(capture.Header().Get("Content-Type"), ";")[0])
+	if !strings.HasPrefix(mimeType, "video/") && mimeType != "application/octet-stream" {
+		capture.Discard()
+		return
+	}
+	relPath, mimeType, sizeBytes, keep, err := capture.Finalize(capture.Status(), mimeType, contentLength)
+	if err != nil {
+		logger.LogWarn(ctx, "workbench video capture: failed to finalize capture: "+err.Error())
+		return
+	}
+	if !keep {
+		return
+	}
+	// 并发重复捕获去重：已有记录则丢弃本次文件。
+	if existing, err := model.GetByTokenTask(tokenID, taskID); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("workbench video capture: dedup check failed for task %s: %s", taskID, err.Error()))
+		_ = service.DeleteWorkbenchMedia(relPath)
+		return
+	} else if existing != nil {
+		_ = service.DeleteWorkbenchMedia(relPath)
+		return
+	}
+	modelName := task.Properties.OriginModelName
+	if modelName == "" {
+		modelName = task.Properties.UpstreamModelName
+	}
+	if err := service.RecordWorkbenchGeneration(c.GetInt("id"), tokenID, model.WorkbenchGenerationTypeVideo,
+		modelName, task.Properties.Input, workbenchVideoParamsJSON(task), taskID, relPath, mimeType, sizeBytes); err != nil {
+		logger.LogError(ctx, "workbench video capture: failed to record generation: "+err.Error())
+		_ = service.DeleteWorkbenchMedia(relPath)
+	}
+}
+
+// workbenchVideoParamsJSON 从任务响应数据中尽力提取视频生成参数
+// （duration_seconds / ratio / resolution），供生成记录展示；提取不到时返回空串。
+func workbenchVideoParamsJSON(task *model.Task) string {
+	var taskData map[string]any
+	if err := task.GetData(&taskData); err != nil || len(taskData) == 0 {
+		return ""
+	}
+	params := make(map[string]any)
+	switch seconds := taskData["seconds"].(type) {
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(seconds)); err == nil && n > 0 {
+			params["duration_seconds"] = n
+		}
+	case float64:
+		if seconds > 0 {
+			params["duration_seconds"] = int(seconds)
+		}
+	}
+	if ratio, ok := taskData["ratio"].(string); ok && ratio != "" {
+		params["ratio"] = ratio
+	}
+	for _, key := range []string{"video_resolution", "resolution", "size"} {
+		if resolution, ok := taskData[key].(string); ok && resolution != "" {
+			params["resolution"] = resolution
+			break
+		}
+	}
+	if len(params) == 0 {
+		return ""
+	}
+	paramsBytes, err := common.Marshal(params)
+	if err != nil {
+		return ""
+	}
+	return string(paramsBytes)
+}
+
+func workbenchTaskBelongsToToken(c *gin.Context) (*model.Task, bool) {
 	taskID := strings.TrimSpace(c.Param("task_id"))
 	tokenID := c.GetInt("token_id")
 	if taskID == "" || tokenID <= 0 {
@@ -157,7 +267,7 @@ func workbenchTaskBelongsToToken(c *gin.Context) bool {
 				"type":    "invalid_request_error",
 			},
 		})
-		return false
+		return nil, false
 	}
 
 	task, exists, err := model.GetByTaskId(c.GetInt("id"), taskID)
@@ -168,7 +278,7 @@ func workbenchTaskBelongsToToken(c *gin.Context) bool {
 				"type":    "server_error",
 			},
 		})
-		return false
+		return nil, false
 	}
 	if !exists || task == nil || task.PrivateData.TokenId != tokenID {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -177,7 +287,7 @@ func workbenchTaskBelongsToToken(c *gin.Context) bool {
 				"type":    "invalid_request_error",
 			},
 		})
-		return false
+		return nil, false
 	}
-	return true
+	return task, true
 }

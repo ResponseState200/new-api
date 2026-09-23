@@ -71,3 +71,20 @@ export interface VideoGenerationPayload {
   video_resolution: string
   image?: File
 }
+
+export interface WorkbenchGeneration {
+  id: number
+  type: WorkbenchMode
+  model: string
+  prompt: string
+  params: string
+  task_id?: string
+  mime_type: string
+  size_bytes: number
+  created_at: number
+  expires_at: number
+}
+
+export interface WorkbenchGenerationsResponse {
+  items: WorkbenchGeneration[]
+}

@@ -55,6 +55,7 @@ func TestMain(m *testing.M) {
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.WorkbenchGeneration{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

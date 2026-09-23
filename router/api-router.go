@@ -202,10 +202,15 @@ func SetApiRouter(router *gin.Engine) {
 			workbenchRoute.GET("/keys", controller.ListWorkbenchKeys)
 			workbenchRoute.GET("/models", controller.ListWorkbenchModels)
 
+			workbenchRoute.GET("/generations", controller.ListWorkbenchGenerations)
+			workbenchRoute.GET("/generations/:id/content", controller.GetWorkbenchGenerationContent)
+			workbenchRoute.DELETE("/generations/:id", controller.DeleteWorkbenchGeneration)
+
 			workbenchImageRoute := workbenchRoute.Group("/keys/:token_id/images")
 			workbenchImageRoute.Use(
 				middleware.PrepareWorkbenchToken("/v1/images/generations"),
 				middleware.ValidateWorkbenchImageRequest(),
+				middleware.CaptureWorkbenchImageGeneration(),
 				middleware.SystemPerformanceCheck(),
 				middleware.ModelRequestRateLimit(),
 				middleware.Distribute(),
