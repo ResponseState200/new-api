@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -76,13 +77,7 @@ func isWorkbenchTokenAvailable(token *model.Token) bool {
 
 func ListWorkbenchModels(c *gin.Context) {
 	mode := strings.TrimSpace(c.Query("mode"))
-	var endpointType constant.EndpointType
-	switch mode {
-	case "image":
-		endpointType = constant.EndpointTypeImageGeneration
-	case "video":
-		endpointType = constant.EndpointTypeOpenAIVideo
-	default:
+	if mode != "image" && mode != "video" {
 		common.ApiErrorMsg(c, "Invalid workbench mode")
 		return
 	}
@@ -125,12 +120,40 @@ func ListWorkbenchModels(c *gin.Context) {
 		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
 			continue
 		}
-		if !slices.Contains(model.GetModelSupportEndpointTypes(modelName), endpointType) {
+		if !isWorkbenchModeModelSupported(mode, modelName, model.GetModelSupportEndpointTypes(modelName)) {
 			continue
 		}
 		models = append(models, modelName)
 	}
 	common.ApiSuccess(c, gin.H{"models": models})
+}
+
+// isWorkbenchModeModelSupported 判断模型能否在工作台对应模式下真正发起生成。
+// 图片模式沿用渠道端点类型推断;视频模式的提交入口固定为 POST /v1/videos,
+// 因此要求模型由任务插件声明(或经渠道模型映射解析到插件声明模型),
+// 或渠道原生支持 openai-video 端点类型(如 Sora 渠道)。
+func isWorkbenchModeModelSupported(mode string, modelName string, endpointTypes []constant.EndpointType) bool {
+	if mode == "image" {
+		return slices.Contains(endpointTypes, constant.EndpointTypeImageGeneration)
+	}
+	if slices.Contains(endpointTypes, constant.EndpointTypeOpenAIVideo) {
+		return true
+	}
+	generation := jsplugin.DefaultRegistry.Generation()
+	if generation == nil {
+		return false
+	}
+	lookupModel := ""
+	if declared, ok := generation.CanonicalModel(modelName); ok {
+		lookupModel = declared
+	} else if target, ok := model.ResolveTaskModelAlias(generation, modelName); ok {
+		lookupModel = target.Declared
+	}
+	if lookupModel == "" {
+		return false
+	}
+	binding, found := generation.LookupEndpoint(http.MethodPost, "/v1/videos", lookupModel)
+	return found && binding.Plugin != nil
 }
 
 func WorkbenchVideoFetch(c *gin.Context) {
